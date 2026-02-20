@@ -1,3 +1,4 @@
+model/weights/
 .env
 __pycache__/
 *.pyc

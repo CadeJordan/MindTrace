@@ -1,0 +1,10 @@
+numpy>=1.19.0
+requests>=2.25.0
+opencv-python>=4.5.0
+
+# Jetson Nano ONNX Runtime (Python 3.8 / JetPack 4.6)
+https://nvidia.box.com/shared/static/2sv2fv1wseihaw8ym0d4srz41dzljwxh.whl
+
+# WARNING: MediaPipe does not have official Jetson wheels. 
+# Keep commented out to avoid build crashes. The model.py script will safely run without it.
+# mediapipe>=0.10.9
