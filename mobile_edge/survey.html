@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindTrace Survey</title>
+  <style>
+    :root { --bg: #0f0f12; --card: #1a1a20; --accent: #6366f1; --text: #e4e4e7; --muted: #71717a; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text);
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .card { background: var(--card); border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+    h1 { margin: 0 0 1.5rem; font-size: 1.5rem; font-weight: 600; }
+    label { display: block; margin-bottom: 0.35rem; font-size: 0.9rem; color: var(--muted); }
+    input[type="text"] { width: 100%; padding: 0.6rem 0.75rem; margin-bottom: 1rem;
+      background: var(--bg); border: 1px solid #2d2d35; border-radius: 8px; color: var(--text);
+      font-size: 1rem; }
+    input:focus { outline: none; border-color: var(--accent); }
+    button { width: 100%; padding: 0.75rem; background: var(--accent); color: white; border: none;
+      border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    .success { background: #166534; color: #dcfce7; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
+    .error { background: #991b1b; color: #fecaca; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
+    .scale { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .scale label { flex: 1; text-align: center; margin-bottom: 0; }
+    .scale input { width: auto; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>MindTrace Survey</h1>
+    {% if message %}
+    <div class="{{ 'success' if success else 'error' }}">{{ message }}</div>
+    {% endif %}
+    <form method="post" action="{{ url_for('submit_survey') }}">
+      <label for="user_id">User / Session ID</label>
+      <input id="user_id" name="user_id" type="text" value="{{ user_id or '' }}" placeholder="e.g. user_01" required>
+
+      <label>How is your mood right now? (1 = low, 5 = high)</label>
+      <div class="scale">
+        {% for i in range(1, 6) %}
+        <label><input type="radio" name="mood" value="{{ i }}" required> {{ i }}</label>
+        {% endfor %}
+      </div>
+
+      <label>Engagement (1 = low, 5 = high)</label>
+      <div class="scale">
+        {% for i in range(1, 6) %}
+        <label><input type="radio" name="engagement" value="{{ i }}" required> {{ i }}</label>
+        {% endfor %}
+      </div>
+
+      <label>Energy level (1 = tired, 5 = energized)</label>
+      <div class="scale">
+        {% for i in range(1, 6) %}
+        <label><input type="radio" name="energy" value="{{ i }}" required> {{ i }}</label>
+        {% endfor %}
+      </div>
+
+      <button type="submit">Submit to Fog (InfluxDB)</button>
+    </form>
+  </div>
+</body>
+</html>
