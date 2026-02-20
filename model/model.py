@@ -16,7 +16,6 @@ except ImportError:
     _HAS_MEDIAPIPE = False
 
 
-
 WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights")
 FACE_PROTO = os.path.join(WEIGHTS_DIR, "deploy.prototxt")
 FACE_MODEL = os.path.join(WEIGHTS_DIR, "res10_300x300_ssd_iter_140000.caffemodel")
