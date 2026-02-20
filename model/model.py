@@ -133,6 +133,7 @@ class EmotionAnalyzer:
             ["CUDAExecutionProvider", "CPUExecutionProvider"]
             if use_cuda else ["CPUExecutionProvider"]
         )
+        print(f'Using providers: {providers}')
         self.session = ort.InferenceSession(EMOTION_MODEL, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
