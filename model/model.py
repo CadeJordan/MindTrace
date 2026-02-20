@@ -2,7 +2,6 @@ import argparse
 import os
 import time
 from collections import deque
-from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -282,43 +281,6 @@ def draw_overlay(frame, results, drowsiness, fps):
     return frame
 
 
-def send_to_api(api_url, user, result, drowsiness):
-    import requests
-
-    payload = {
-        "user": user,
-        "emotion": result["emotion"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "emotion_confidence": result["emotion_confidence"],
-        "valence": result["valence"],
-        "arousal": result["arousal"],
-    }
-
-    ear_val = drowsiness[0] if drowsiness else None
-    mar_val = drowsiness[1] if drowsiness else None
-    pcl_val = drowsiness[2] if drowsiness else None
-
-    if ear_val is not None:
-        payload["ear"] = round(ear_val, 3)
-    if mar_val is not None:
-        payload["mar"] = round(mar_val, 3)
-    if pcl_val is not None:
-        payload["perclos"] = round(pcl_val, 3)
-
-    state = assess_wellness(
-        result["emotion"], result["valence"], result["arousal"],
-        ear_val, mar_val, pcl_val,
-    )
-    payload["state"] = state
-
-    try:
-        resp = requests.post(api_url, json=payload, timeout=5)
-        resp.raise_for_status()
-        print(f"[API] {result['emotion']}  state={state}")
-    except Exception as e:
-        print(f"[API] Failed: {e}")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Emotion & Wellness Detection")
     parser.add_argument("--camera", type=int, default=0,
@@ -329,12 +291,6 @@ def main():
                         help="Face detection confidence threshold")
     parser.add_argument("--headless", action="store_true",
                         help="No display window (SSH / headless)")
-    parser.add_argument("--api-url", type=str, default=None,
-                        help="API Gateway endpoint URL")
-    parser.add_argument("--user", type=str, default="default",
-                        help="User ID for API reporting")
-    parser.add_argument("--send-interval", type=float, default=2.0,
-                        help="Seconds between API calls")
     parser.add_argument("--no-drowsiness", action="store_true",
                         help="Disable MediaPipe drowsiness detection")
     args = parser.parse_args()
@@ -365,7 +321,6 @@ def main():
     fps = 0.0
     frame_count = 0
     fps_start = time.time()
-    last_send = 0.0
 
     try:
         while True:
@@ -397,18 +352,9 @@ def main():
                 frame_count = 0
                 fps_start = time.time()
 
-            if (
-                args.api_url
-                and results
-                and (time.time() - last_send) >= args.send_interval
-            ):
-                dominant = max(results, key=lambda r: r["emotion_confidence"])
-                send_to_api(args.api_url, args.user, dominant, drowsiness)
-                last_send = time.time()
-
             if not args.headless:
                 draw_overlay(frame, results, drowsiness, fps)
-                cv2.imshow("MindTrace", frame)
+                cv2.imshow("Emotion & Wellness Detection", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
             elif results:
