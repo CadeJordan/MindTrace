@@ -2,7 +2,7 @@
 131 Project on an edge-based facial emotion recognition system that tracks and visualizes emotional trends over time using cloud storage and analytics.
 
 
-## API DOCUMENTATION
+### API DOCUMENTATION
 **Store emotion data**:
 ```<route>/store```
 example request body format:
