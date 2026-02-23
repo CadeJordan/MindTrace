@@ -5,12 +5,25 @@
 ## API DOCUMENTATION
 **Store emotion data**:
 ```<route>/store```
-request body format:
+example request body format:
 ```
 {
-    "user" : <user whos data is being captured>,
-    "emotion" : <emotion tag returned by model>,
-    "timestamp": <time emotion was captured, formatted YYYY-MM-DDTHH:MM:SS>
+  "user": "test",
+  "session_id": "test",
+  "data": [
+    {
+      "timestamp": "2026-02-18T15:23:10Z",
+      "emotion": "happy",
+      "emotion_confidence": 0.91,
+      "valence": 0.72,
+      "arousal": 0.63
+    }
+  ],
+  "survey": {
+    "mood": 0.8,
+    "engagement": 0.7,
+    "energy": 0.9
+  }
 }
 ```
-this route should only be called by the edge device while recording emotion data
+this route should be called at the end of a presentation when all data is collected, it returns a result json with parts that can be visualized on grafana and some other insights
