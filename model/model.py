@@ -1,11 +1,19 @@
 import argparse
 import os
+import sys
 import time
 from collections import deque
+from datetime import datetime, timezone
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+import edge_stream
 
 try:
     import mediapipe as mp
@@ -228,6 +236,12 @@ def assess_wellness(emotion, valence, arousal, ear, mar, perclos):
         return "not_locked_in"
     return "ok"
 
+def _send_emotion(user_id, dominant, send_fog):
+    if not send_fog:
+        return False
+    payload = edge_stream.build_payload(user_id, dominant)
+    return edge_stream.send_to_fog(payload)
+
 
 def draw_overlay(frame, results, drowsiness, fps):
     for r in results:
@@ -294,7 +308,18 @@ def main():
                         help="No display window (SSH / headless)")
     parser.add_argument("--no-drowsiness", action="store_true",
                         help="Disable MediaPipe drowsiness detection")
+    parser.add_argument("--user", type=str, default=None,
+                        help="User/session ID for fog and mobile app (e.g. nano_user)")
+    parser.add_argument("--fog", action="store_true",
+                        help="Send each emotion to the fog (InfluxDB). Requires INFLUX_URL and INFLUX_TOKEN in .env at repo root.")
+    parser.add_argument("--ws", action="store_true",
+                        help="Start a WebSocket server and stream emotions to the phone browser.")
+    parser.add_argument("--ws-port", type=int, default=8765,
+                        help="WebSocket port for streaming emotions (default: 8765).")
     args = parser.parse_args()
+
+    if args.ws:
+        edge_stream.start_ws_server("0.0.0.0", int(args.ws_port))
 
     face_det = FaceDetector(use_cuda=args.cuda)
     emotion_analyzer = EmotionAnalyzer(use_cuda=args.cuda)
@@ -322,6 +347,10 @@ def main():
     fps = 0.0
     frame_count = 0
     fps_start = time.time()
+    last_send_time = 0.0
+    SEND_INTERVAL_SEC = 3.0  
+    last_ws_time = 0.0
+    WS_INTERVAL_SEC = 0.5
 
     try:
         while True:
@@ -367,6 +396,14 @@ def main():
                     dominant["emotion"], dominant["valence"], dominant["arousal"],
                     ear_v, mar_v, pcl_v,
                 )
+                # Stream to mobile edge using WebSocket
+                if args.ws and args.user and (time.time() - last_ws_time) >= WS_INTERVAL_SEC:
+                    edge_stream.ws_broadcast(edge_stream.build_payload(args.user, dominant))
+                    last_ws_time = time.time()
+                # Send to fog (InfluxDB)
+                if args.user and args.fog and (time.time() - last_send_time) >= SEND_INTERVAL_SEC:
+                    if _send_emotion(args.user, dominant, args.fog):
+                        last_send_time = time.time()
                 parts = [
                     f"[{fps:.1f} FPS]",
                     f"{dominant['emotion']} ({dominant['emotion_confidence']:.0%})",

@@ -34,10 +34,11 @@
     {% if user_id %}
       <p class="muted">Current emotion for <strong>{{ user_id }}</strong></p>
       {% if emotion %}
-        <p class="emotion">{{ emotion }}</p>
+        <p class="emotion" id="emotionValue">{{ emotion }}</p>
       {% else %}
-        <p class="muted">No emotion data yet.</p>
+        <p class="muted" id="emotionValue">No emotion data yet.</p>
       {% endif %}
+      <p class="muted" id="wsStatus"></p>
       <div class="actions">
         <a href="{{ url_for('survey') }}?user={{ user_id }}" class="button">Take survey</a>
       </div>
@@ -49,5 +50,45 @@
       </form>
     {% endif %}
   </div>
+
+  {% if user_id %}
+  <script>
+  (() => {
+    const userId = {{ user_id | tojson }};
+    const emotionEl = document.getElementById('emotionValue');
+    const statusEl = document.getElementById('wsStatus');
+
+    const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+    const wsUrl = `${proto}://${location.hostname}:8765`;
+
+    function setStatus(text) {
+      if (statusEl) statusEl.textContent = text || '';
+    }
+
+    function connect() {
+      setStatus(`Connecting to ${wsUrl} ...`);
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => setStatus('Live: connected');
+      ws.onclose = () => {
+        setStatus('Live: disconnected (retrying...)');
+        setTimeout(connect, 1000);
+      };
+      ws.onerror = () => setStatus('Live: error (retrying...)');
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data && data.user === userId && data.emotion && emotionEl) {
+            emotionEl.textContent = data.emotion;
+            emotionEl.className = 'emotion';
+          }
+        } catch (_) {}
+      };
+    }
+
+    connect();
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>
