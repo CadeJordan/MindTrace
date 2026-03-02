@@ -382,12 +382,7 @@ def main():
                 frame_count = 0
                 fps_start = time.time()
 
-            if not args.headless:
-                draw_overlay(frame, results, drowsiness, fps)
-                cv2.imshow("Emotion & Wellness Detection", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-            elif results:
+            if results:
                 dominant = max(results, key=lambda r: r["emotion_confidence"])
                 ear_v = drowsiness[0] if drowsiness else None
                 mar_v = drowsiness[1] if drowsiness else None
@@ -396,23 +391,28 @@ def main():
                     dominant["emotion"], dominant["valence"], dominant["arousal"],
                     ear_v, mar_v, pcl_v,
                 )
-                # Stream to mobile edge using WebSocket
                 if args.ws and args.user and (time.time() - last_ws_time) >= WS_INTERVAL_SEC:
                     edge_stream.ws_broadcast(edge_stream.build_payload(args.user, dominant))
                     last_ws_time = time.time()
-                # Send to fog (InfluxDB)
                 if args.user and args.fog and (time.time() - last_send_time) >= SEND_INTERVAL_SEC:
                     if _send_emotion(args.user, dominant, args.fog):
                         last_send_time = time.time()
-                parts = [
-                    f"[{fps:.1f} FPS]",
-                    f"{dominant['emotion']} ({dominant['emotion_confidence']:.0%})",
-                    f"V:{dominant['valence']:+.2f} A:{dominant['arousal']:+.2f}",
-                ]
-                if ear_v is not None:
-                    parts.append(f"EAR:{ear_v:.2f}")
-                parts.append(f"-> {state}")
-                print("  ".join(parts))
+                if args.headless:
+                    parts = [
+                        f"[{fps:.1f} FPS]",
+                        f"{dominant['emotion']} ({dominant['emotion_confidence']:.0%})",
+                        f"V:{dominant['valence']:+.2f} A:{dominant['arousal']:+.2f}",
+                    ]
+                    if ear_v is not None:
+                        parts.append(f"EAR:{ear_v:.2f}")
+                    parts.append(f"-> {state}")
+                    print("  ".join(parts))
+
+            if not args.headless:
+                draw_overlay(frame, results, drowsiness, fps)
+                cv2.imshow("Emotion & Wellness Detection", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
     finally:
         cap.release()
         if not args.headless:

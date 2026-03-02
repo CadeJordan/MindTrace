@@ -57,17 +57,17 @@
     const userId = {{ user_id | tojson }};
     const emotionEl = document.getElementById('emotionValue');
     const statusEl = document.getElementById('wsStatus');
-
-    const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
-    const wsUrl = `${proto}://${location.hostname}:8765`;
+    const wsUrl = {{ edge_ws_url | tojson if edge_ws_url is defined and edge_ws_url else 'null' }};
+    const fallbackWsUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.hostname + ':8765';
+    const actualWsUrl = (typeof wsUrl === 'string' && wsUrl) ? wsUrl : fallbackWsUrl;
 
     function setStatus(text) {
       if (statusEl) statusEl.textContent = text || '';
     }
 
     function connect() {
-      setStatus(`Connecting to ${wsUrl} ...`);
-      const ws = new WebSocket(wsUrl);
+      setStatus(`Connecting to ${actualWsUrl} ...`);
+      const ws = new WebSocket(actualWsUrl);
 
       ws.onopen = () => setStatus('Live: connected');
       ws.onclose = () => {

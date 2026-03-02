@@ -7,6 +7,7 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 from fog.survey_db_write import write_survey_response
+from fog import config as fog_config
 
 app = Flask(__name__, template_folder=Path(__file__).resolve().parent)
 
@@ -23,7 +24,9 @@ def index():
     if not user_id:
         return render_template("home.html")
     emotion = _current_emotion(user_id)
-    return render_template("home.html", user_id=user_id, emotion=emotion)
+    # So the phone connects to the Nano's WebSocket when app runs on fog
+    edge_ws_url = getattr(fog_config, "edge_ws_url", None)
+    return render_template("home.html", user_id=user_id, emotion=emotion, edge_ws_url=edge_ws_url)
 
 # Gets emotion from the nano to display on the home page
 @app.route("/emotion", methods=["POST"])
