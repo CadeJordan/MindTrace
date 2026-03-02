@@ -20,17 +20,30 @@ def build_payload(user_id: str, dominant: dict) -> dict:
     }
 
 
+def _local_ip() -> str:
+    import socket
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0)
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 def start_ws_server(host: str, port: int) -> None:
     global _WS_LOOP
     if _WS_LOOP is not None:
         return
 
     def _run():
-        global _WS_LOOP
         try:
             import websockets 
         except Exception as e:
-            print(f"[WS] Cannot import websockets ({e}). Install: pip install websockets")
+            print(f"Cannot import websockets ({e}). Install: pip install websockets")
             return
 
         async def _handler(ws):
@@ -42,21 +55,26 @@ def start_ws_server(host: str, port: int) -> None:
                 with _WS_CLIENTS_LOCK:
                     _WS_CLIENTS.discard(ws)
 
-        loop = asyncio.new_event_loop()
-        _WS_LOOP = loop
-        asyncio.set_event_loop(loop)
-        try:
-            server = loop.run_until_complete(websockets.serve(_handler, host, port))
-        except Exception as e:
-            print(f"[WS] Failed to bind {host}:{port} ({e})")
-            return
+        async def _main():
+            global _WS_LOOP
+            loop = asyncio.get_running_loop()
+            _WS_LOOP = loop
+            try:
+                server = await websockets.serve(_handler, host, port)
+            except Exception as e:
+                print(f"WS Failed to bind {host}:{port} ({e})")
+                return
 
-        print(f"[WS] Listening on ws://{host}:{port}")
-        try:
-            loop.run_forever()
-        finally:
-            server.close()
-            loop.run_until_complete(server.wait_closed())
+            ip = _local_ip()
+            print(f"Listening on ws://{host}:{port}")
+            print(f"Phone/Web browser: ws://{ip}:{port}")
+            try:
+                await asyncio.Future()
+            finally:
+                server.close()
+                await server.wait_closed()
+
+        asyncio.run(_main())
 
     t = threading.Thread(target=_run, daemon=True, name="ws-server")
     t.start()
@@ -95,6 +113,6 @@ def send_to_fog(payload: dict) -> bool:
         write_emotion_from_payload(payload)
         return True
     except Exception as e:
-        print(f" [fog error: {e}]", end="", flush=True)
+        print(f"fog error: {e}", end="", flush=True)
         return False
 
