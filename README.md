@@ -26,4 +26,17 @@ example request body format:
   }
 }
 ```
-this route should be called at the end of a presentation when all data is collected, it returns a result json with parts that can be visualized on grafana and some other insights
+this route should only be called at the end of the presentation by the fog.
+
+### Architecture (Nano + Fog)
+
+- **Edge (Jetson Nano)** runs the model (`model/model.py` or `model/mock_edge_stream.py`): camera inference, WebSocket server for live emotion, and writes emotion data to the fog’s InfluxDB.
+- **Fog (e.g. laptop)** runs InfluxDB and the mobile app (`mobile_edge/app.py`): survey UI, emotion display, survey → InfluxDB. The phone opens the app from the fog’s IP.
+
+So the phone loads the app from the **fog** (e.g. `http://LAPTOP_IP:5001`). For live emotion, the in-page WebSocket must connect to the **Nano**. On the fog, set the Nano’s WebSocket URL in `.env`:
+
+```bash
+EDGE_WS_URL=ws://NANO_IP:8765
+```
+
+Replace `NANO_IP` with the Nano’s IP on your LAN (same Wi‑Fi). If `EDGE_WS_URL` is not set, the app assumes the WebSocket is on the same host as the page (e.g. when running mock + app on one machine).
