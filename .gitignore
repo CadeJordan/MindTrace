@@ -3,3 +3,4 @@ model/weights/
 __pycache__/
 *.pyc
 model/venv/
+model/venv38/
