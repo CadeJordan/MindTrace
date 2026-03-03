@@ -26,8 +26,7 @@ example request body format:
   }
 }
 ```
-<<<<<<< HEAD
-this route should only be called by the edge device while recording emotion data
+this route should only be called at the end of the presentation by the fog.
 
 ### Architecture (Nano + Fog)
 
@@ -41,6 +40,3 @@ EDGE_WS_URL=ws://NANO_IP:8765
 ```
 
 Replace `NANO_IP` with the Nano’s IP on your LAN (same Wi‑Fi). If `EDGE_WS_URL` is not set, the app assumes the WebSocket is on the same host as the page (e.g. when running mock + app on one machine).
-=======
-this route should be called at the end of a presentation when all data is collected, it returns a result json with parts that can be visualized on grafana and some other insights
->>>>>>> c90c547949d473ee783d6d62b4e97146e22cb2bf
