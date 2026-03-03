@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""
-Read all emotion and survey data from InfluxDB, POST to the store EmotionData
-AWS endpoint, and write the API response back to InfluxDB.
-
-Usage:
-  python -m fog.sync_emotion_to_store [--user USER] [--session-id SESSION_ID] [--endpoint URL]
-  From repo root with .env containing INFLUX_URL, INFLUX_TOKEN.
-"""
-
 import argparse
 import json
 import sys
@@ -43,7 +33,6 @@ def _parse_ts(ts):
 
 
 def query_emotion_data(client, bucket, org, user_filter=None):
-    """Query all emotion_data points and return list of dicts for the API payload."""
     query = f'''
     from(bucket: "{bucket}")
       |> range(start: 0)
@@ -65,7 +54,6 @@ def query_emotion_data(client, bucket, org, user_filter=None):
             u = r.get("user", "")
             if ts is None:
                 continue
-            # Emotion is the field name that has value 1.0 (other emotion columns may be absent)
             emotion = None
             for name in EMOTION_FIELDS:
                 v = r.get(name)
@@ -82,13 +70,11 @@ def query_emotion_data(client, bucket, org, user_filter=None):
                 "arousal": float(r.get("arousal") or 0.0),
                 "_user": u,
             })
-    # Sort by time
     rows.sort(key=lambda x: x["timestamp"])
     return rows
 
 
 def query_survey_data(client, bucket, org, user_filter=None):
-    """Query survey_response and return the latest survey as { mood, engagement, energy }."""
     query = f'''
     from(bucket: "{bucket}")
       |> range(start: 0)
@@ -107,7 +93,6 @@ def query_survey_data(client, bucket, org, user_filter=None):
     for table in tables:
         for record in table.records:
             r = record.values
-            # Normalize to 0–1 floats if stored as 0–10 ints
             mood = r.get("mood")
             engagement = r.get("engagement")
             energy = r.get("energy")
@@ -127,7 +112,6 @@ def query_survey_data(client, bucket, org, user_filter=None):
 
 
 def build_payload(emotion_rows, survey, user="test", session_id="test"):
-    """Build the JSON body for the store endpoint."""
     if emotion_rows:
         user = emotion_rows[0].get("_user") or user
     data = []
@@ -149,7 +133,6 @@ def build_payload(emotion_rows, survey, user="test", session_id="test"):
 
 
 def post_to_store(payload, endpoint):
-    """POST payload to the store endpoint; return parsed JSON response."""
     resp = requests.post(
         endpoint,
         json=payload,
@@ -160,25 +143,86 @@ def post_to_store(payload, endpoint):
     return resp.json()
 
 
-def write_response_to_influx(client, bucket, org, response_body, user, session_id):
-    """Write the store API response into InfluxDB as a single point."""
+def _safe_float(val):
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_engagement_ts(ts_str):
+    if not ts_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def write_response_to_influx(client, bucket, org, response_body, user, session_id, store_raw_json=True):
     write_api = client.write_api()
-    ts = datetime.now(timezone.utc)
-    body_str = json.dumps(response_body) if isinstance(response_body, dict) else str(response_body)
-    point = (
-        Point("store_emotion_response")
-        .tag("user", str(user))
-        .tag("session_id", str(session_id))
-        .field("response_body", body_str)
-        .time(ts)
-    )
-    if isinstance(response_body, dict):
-        if "message" in response_body:
-            point = point.field("message", str(response_body["message"]))
-        if "s3_path" in response_body:
-            point = point.field("s3_path", str(response_body["s3_path"]))
-    write_api.write(bucket=bucket, org=org, record=point)
-    print(f"[InfluxDB] Stored store response for {user} / {session_id} at {ts}")
+    try:
+        ts_now = datetime.now(timezone.utc)
+        point = (
+            Point("store_emotion_response")
+            .tag("user", str(user))
+            .tag("session_id", str(session_id))
+            .time(ts_now)
+        )
+        if store_raw_json:
+            body_str = json.dumps(response_body) if isinstance(response_body, dict) else str(response_body)
+            point = point.field("response_body", body_str)
+
+        if isinstance(response_body, dict):
+            if store_raw_json:
+                if "message" in response_body:
+                    point = point.field("message", str(response_body["message"]))
+                if "s3_path" in response_body:
+                    point = point.field("s3_path", str(response_body["s3_path"]))
+            # Numeric summary fields (floats) — InfluxDB/Grafana can aggregate these
+            summary = response_body.get("summary") or {}
+            for key in ("average_engagement", "average_valence", "average_arousal"):
+                v = _safe_float(summary.get(key))
+                if v is not None:
+                    point = point.field(key, v)
+            survey_analysis = response_body.get("survey_analysis") or {}
+            model_vs = (survey_analysis.get("model_vs_self_report") or {}) if isinstance(survey_analysis.get("model_vs_self_report"), dict) else {}
+            for key in ("engagement_difference", "mood_difference", "energy_difference"):
+                v = _safe_float(model_vs.get(key))
+                if v is not None:
+                    point = point.field(key, v)
+        write_api.write(bucket=bucket, org=org, record=point)
+
+        if isinstance(response_body, dict):
+            series = response_body.get("engagement_series")
+            if isinstance(series, list):
+                count = 0
+                for item in series:
+                    if not isinstance(item, dict):
+                        continue
+                    ts_dt = _parse_engagement_ts(item.get("timestamp"))
+                    eng = _safe_float(item.get("engagement"))
+                    if ts_dt is not None and eng is not None:
+                        p = (
+                            Point("store_engagement_series")
+                            .tag("user", str(user))
+                            .tag("session_id", str(session_id))
+                            .field("engagement", eng)
+                            .time(ts_dt)
+                        )
+                        write_api.write(bucket=bucket, org=org, record=p)
+                        count += 1
+                if count:
+                    print(f"[InfluxDB] Stored {count} engagement_series points for {user} / {session_id}")
+
+        print(f"[InfluxDB] Stored store response for {user} / {session_id} at {ts_now}")
+    finally:
+        write_api.close()
 
 
 def main():
@@ -204,6 +248,11 @@ def main():
         "--dry-run",
         action="store_true",
         help="Only print payload and do not POST or write to InfluxDB",
+    )
+    parser.add_argument(
+        "--no-raw-json",
+        action="store_true",
+        help="Do not store the full API response as a string; only write numeric and time-series data (avoids string fields in InfluxDB).",
     )
     args = parser.parse_args()
 
@@ -233,7 +282,8 @@ def main():
         print("Response:", response_body)
 
         write_response_to_influx(
-            client, config.bucket, config.org, response_body, user, args.session_id
+            client, config.bucket, config.org, response_body, user, args.session_id,
+            store_raw_json=not args.no_raw_json,
         )
         return 0
     finally:
