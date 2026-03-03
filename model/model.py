@@ -61,10 +61,10 @@ LOWER_LIP = 14
 MOUTH_LEFT = 78
 MOUTH_RIGHT = 308
 
-EAR_THRESHOLD = 0.23
+EAR_THRESHOLD = 0.26
 MAR_THRESHOLD = 0.65
 PERCLOS_WINDOW_SEC = 20
-PERCLOS_DROWSY = 0.15
+PERCLOS_DROWSY = 0.30
 
 def softmax(x):
     e = np.exp(x - np.max(x))
@@ -94,39 +94,6 @@ def _mar(landmarks, w, h):
     if horizontal < 1e-6:
         return 0.0
     return _dist(top, bot) / horizontal
-
-
-class FaceDetector:
-    def __init__(self, use_cuda=False):
-        for p in (FACE_PROTO, FACE_MODEL):
-            if not os.path.isfile(p):
-                raise FileNotFoundError(f"Missing: {p}\nRun download_models.py")
-
-        self.net = cv2.dnn.readNetFromCaffe(FACE_PROTO, FACE_MODEL)
-
-        if use_cuda and cv2.cuda.getCudaEnabledDeviceCount() > 0:
-            self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-            self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-
-    def detect(self, frame, threshold=0.5):
-        h, w = frame.shape[:2]
-        blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104.0, 177.0, 123.0))
-        self.net.setInput(blob)
-        dets = self.net.forward()
-
-        faces = []
-        for i in range(dets.shape[2]):
-            conf = float(dets[0, 0, i, 2])
-            if conf < threshold:
-                continue
-            box = dets[0, 0, i, 3:7] * np.array([w, h, w, h])
-            x1, y1, x2, y2 = box.astype(int)
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w, x2), min(h, y2)
-            if x2 > x1 and y2 > y1:
-                faces.append((x1, y1, x2, y2, conf))
-        return faces
-
 
 class EmotionAnalyzer:
     img_size = 224
@@ -194,10 +161,24 @@ class DrowsinessDetector:
         result = self.landmarker.detect_for_video(mp_image, self._frame_ts_ms)
 
         if not result.face_landmarks:
-            return None
+            return None, None 
 
         lms = result.face_landmarks[0]
         h, w = frame_bgr.shape[:2]
+
+        xs = [lm.x for lm in lms]
+        ys = [lm.y for lm in lms]
+
+        box_w = max(xs) - min(xs)
+        box_h = max(ys) - min(ys)
+
+        x_min = max(0.0, min(xs) - box_w * 0.1)
+        x_max = min(1.0, max(xs) + box_w * 0.1)
+        y_min = max(0.0, min(ys) - box_h * 0.2) 
+        y_max = min(1.0, max(ys) + box_h * 0.1)
+
+        bbox = (int(x_min * w), int(y_min * h), int(x_max * w), int(y_max * h))
+        # ----------------------
 
         left_ear = _ear(lms, LEFT_EYE, w, h)
         right_ear = _ear(lms, RIGHT_EYE, w, h)
@@ -215,7 +196,7 @@ class DrowsinessDetector:
             closed = sum(1 for _, e in self.ear_history if e < EAR_THRESHOLD)
             perclos = closed / len(self.ear_history)
 
-        return ear, mar, perclos
+        return (ear, mar, perclos), bbox
 
 
 def assess_wellness(emotion, valence, arousal, ear, mar, perclos):
@@ -306,8 +287,6 @@ def main():
                         help="Face detection confidence threshold")
     parser.add_argument("--headless", action="store_true",
                         help="No display window (SSH / headless)")
-    parser.add_argument("--no-drowsiness", action="store_true",
-                        help="Disable MediaPipe drowsiness detection")
     parser.add_argument("--user", type=str, default=None,
                         help="User/session ID for fog and mobile app (e.g. nano_user)")
     parser.add_argument("--fog", action="store_true",
@@ -321,17 +300,13 @@ def main():
     if args.ws:
         edge_stream.start_ws_server("0.0.0.0", int(args.ws_port))
 
-    face_det = FaceDetector(use_cuda=args.cuda)
     emotion_analyzer = EmotionAnalyzer(use_cuda=args.cuda)
 
-    drowsiness_det = None
-    if not args.no_drowsiness:
-        if _HAS_MEDIAPIPE:
-            drowsiness_det = DrowsinessDetector()
-            print("[INFO] MediaPipe drowsiness detection enabled")
-        else:
-            print("[WARN] mediapipe not installed — drowsiness detection disabled")
-            print("       pip install mediapipe   (to enable)")
+    face_det = None
+
+    drowsiness_det = DrowsinessDetector()
+    print("[INFO] MediaPipe enabled. Using it for BOTH face and drowsiness detection.")
+    
 
     print(f"[INFO] Opening USB camera index {args.camera}")
     cap = cv2.VideoCapture(args.camera)
@@ -359,21 +334,20 @@ def main():
                 print("[ERROR] Frame capture failed")
                 break
 
-            faces = face_det.detect(frame, args.confidence)
-
             results = []
-            for x1, y1, x2, y2, fconf in faces:
-                face_img = frame[y1:y2, x1:x2]
-                if face_img.size == 0:
-                    continue
-                pred = emotion_analyzer.predict(face_img)
-                pred["bbox"] = [x1, y1, x2, y2]
-                pred["face_confidence"] = fconf
-                results.append(pred)
-
             drowsiness = None
-            if drowsiness_det is not None:
-                drowsiness = drowsiness_det.process(frame)
+
+            mp_result, bbox = drowsiness_det.process(frame)
+            if mp_result is not None:
+                drowsiness = mp_result
+                x1, y1, x2, y2 = bbox
+                face_img = frame[y1:y2, x1:x2]
+                
+                if face_img.size > 0:
+                    pred = emotion_analyzer.predict(face_img)
+                    pred["bbox"] = [x1, y1, x2, y2]
+                    pred["face_confidence"] = 1.0 
+                    results.append(pred)
 
             frame_count += 1
             elapsed = time.time() - fps_start
